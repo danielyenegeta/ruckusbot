@@ -1,0 +1,9 @@
+name: rileybot
+dependencies:
+  - pip
+  - python
+  - pip:
+      - discord.py
+      - ffmpeg
+      - pytest
+      - yt-dlp
