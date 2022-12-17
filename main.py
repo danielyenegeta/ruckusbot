@@ -1,7 +1,9 @@
 import discord
+import asyncio
 import os
 from discord.ext import commands
-from discord.app_commands.tree import CommandTree
+
+from cogs.youtube_cog import YoutubeCog
 
 intents: discord.Intents = discord.Intents.default()
 intents.message_content = True
@@ -28,6 +30,6 @@ async def hello(ctx):
 async def test(ctx, arg):
     await ctx.send(arg)
 
-CommandTree(bot).sync()
+asyncio.run(bot.add_cog(YoutubeCog(bot)))
 
 bot.run(os.getenv('TOKEN'))
