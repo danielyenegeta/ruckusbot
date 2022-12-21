@@ -1,93 +1,124 @@
+import asyncio
 import discord
+import tempfile
+import pathlib
 import json
+
 from collections import deque
-from yt_dlp import YoutubeDL
+from youtube_dl import YoutubeDL
 from discord.ext import commands
 from discord.state import ConnectionState
 from discord.guild import Guild
-from discord import AudioSource, VoiceChannel
+from discord import AudioSource, VoiceChannel, FFmpegPCMAudio, FFmpegOpusAudio
+from dataclasses import dataclass
+from typing import Deque
 
 class YoutubeCog(commands.Cog):
+    FFMPEG_OPTIONS = {
+        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+        'options': '-vn',
+        }
+    
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.vc = None
-        self.queue = deque()
-        self.curr = 0
+        self.queue: Deque[self.RuckusSource] = deque()
+        self.url_map: dict[str, self.RuckusSource] = {}
 
-    @commands.command()
+    @commands.command(description='plays audio given a youtube url. adds audio to the queue if already playing')
     async def play(self, ctx, url):
-        #get audio via youtubedl
-        self.connect(ctx)
-        self.__get_audio(url)
-        pass
+        await self.__add_to_queue(ctx, url)
+        await self.connect(ctx)
+        if not(self.vc.is_playing() or self.vc.is_paused()):
+            await self.play_next(ctx)
+        
+    async def play_next(self, ctx):
+        if len(self.queue) == 0:
+            await ctx.send("queue is empty, add a youtube link using /play")
+        else:
+            next_video = self.queue.popleft()
+            if self.vc.is_playing():
+                self.vc.stop()
 
-    @commands.command()
-    async def play(self, ctx):
-        pass
-
-    @commands.command()
+            self.vc.play(next_video.source, after = lambda e: asyncio.run_coroutine_threadsafe(self.play_next(ctx), self.bot.loop))
+            await ctx.send(f"Now playing: {next_video.title}")
+    
+    @commands.command(description='pauses the audio player')
     async def pause(self, ctx):
-        pass
+        self.vc.pause()
 
-    @commands.command()
+    @commands.command(description='resumes playing audio')
+    async def resume(self, ctx):
+        if self.vc.is_paused():
+            self.vc.resume()
+
+    @commands.command(description='skips to the next audio in the queue')
     async def skip(self, ctx):
-        pass
+        await self.play_next(ctx)
 
-    @commands.command()
-    async def back(self, ctx):
-        pass
-
-    @commands.command()
-    async def add(self, ctx, url):
-        self.queue.append(url)
-
-    @commands.command()
+    @commands.command(description='removes audio from the queue if present')
     async def remove(self, ctx, url):
-        if url in self.queue:
-            self.queue.remove(url)
+        if url in self.url_map:
+            ruckus_source: self.RuckusSource = self.url_map[url]
+            self.queue.remove(ruckus_source)
+            self.url_map.pop(url)
+            await ctx.send(f"removed {ruckus_source.title} from the queue")
+        else:
+            await ctx.send(f"the url is not in the queue")
 
-    @commands.command()
+    @commands.command(description='displays the items in the queue')
     async def showqueue(self, ctx):
-        for item in self.queue:
-            await ctx.send(str(item))
+        if len(self.queue) == 0:
+            await ctx.send("queue is empty, add a youtube link using /play")
+        else:
+            msg = ""
+            for i in range(len(self.queue)):
+                msg += f"{i+1}: {self.queue[i].title}\n"
+            await ctx.send(msg)
 
-    @commands.command()
+    @commands.command(description='displays the next item in the queue')
     async def whatsnext(self, ctx):
         if len(self.queue) == 0:
-            print("queue is empty, add a youtube link")
+            await ctx.send("queue is empty, add a youtube link using /play")
         else:
-            print(self.queue[0])
+            await ctx.send(f"Playing next: {self.queue[0].title}")
 
-    @commands.command()
+    @commands.command(description='connects to a voice channel')
     async def connect(self, ctx: commands.Context):
-        # await ctx.send(f"current guild: {ctx.guild()}")
-        # ruckus_channel = ctx.guild.get_channel(1044885042335334441)
-        self.vc: discord.VoiceClient = await ctx.message.channel.connect()
-        # await ctx.guild.voice_client.connect()
+        if not self.vc:
+            self.vc: discord.VoiceClient = await ctx.message.channel.connect()
 
-    @commands.command()
+    @commands.command(description='disconnects from a voice channel')
     async def disconnect(self, ctx: commands.Context):
-        # await ctx.send(f"current guild: {ctx.guild()}")
-        # ruckus_channel = ctx.guild.get_channel(1044885042335334441)
-        await self.vc.disconnect()
-        # await ctx.guild.voice_client.connect()
-
-    @commands.command()
-    async def ythello(self, ctx):
-        await ctx.send("hello from youtube cog")
+        if self.vc:
+            await self.vc.disconnect()
     
-    async def __get_audio(self, url):
-        pass
+    async def __add_to_queue(self, ctx, url):
+        info = self.download(url)
+        source = await FFmpegOpusAudio.from_probe(info['formats'][0]['url'], **self.FFMPEG_OPTIONS)
+        ruckus_source: self.RuckusSource = self.RuckusSource(info['title'], url, source)
+        self.queue.append(ruckus_source)
+        self.url_map[url] = ruckus_source
+        await ctx.send(f"Added to queue: {info['title']}")
 
-    class _YoutubeQueue():
-        def __init__(self) -> None:
-            self.queue = deque()
+    def download(self, url: str) -> dict:
+        YDL_OPTIONS = {
+        'noplaylist': 'True'
+        }
+        with YoutubeDL(YDL_OPTIONS) as ydl:
+            try:    
+                info = ydl.extract_info(url, download=False)
+                return info   
+            except Exception as ex:
+                print("exception..." + str(ex))
 
-        async def add(self, ctx, url):
-            self.queue.append(url)
+    @dataclass
+    class RuckusSource:
+        title: str
+        url: str
+        source: FFmpegOpusAudio
 
-        async def remove(self, ctx, url):
-            pass
+        
 
 
 

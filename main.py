@@ -22,14 +22,6 @@ async def yo(message):
     if message.content.startswith('hello'):
         await message.channel.send('yo')
 
-@bot.command()
-async def hello(ctx):
-    await ctx.reply('hello')
-
-@bot.command()
-async def test(ctx, arg):
-    await ctx.send(arg)
-
 asyncio.run(bot.add_cog(YoutubeCog(bot)))
 
 bot.run(os.getenv('TOKEN'))
