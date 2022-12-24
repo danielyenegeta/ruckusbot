@@ -14,14 +14,6 @@ bot: commands.Bot = commands.Bot(command_prefix='/', intents=intents)
 async def on_ready():
     print(f'Logged in as {bot.user}')
 
-@bot.listen('on_message')
-async def yo(message):
-    if message.author == bot.user:
-        return
-
-    if message.content.startswith('hello'):
-        await message.channel.send('yo')
-
 asyncio.run(bot.add_cog(YoutubeCog(bot)))
 
 bot.run(os.getenv('TOKEN'))
