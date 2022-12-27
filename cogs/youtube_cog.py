@@ -44,9 +44,21 @@ class YoutubeCog(commands.Cog):
         if self.vc.is_paused():
             self.vc.resume()
 
+    @commands.command(description='stops audio from playing')
+    async def stop(self, ctx) -> None:
+        if self.vc.is_playing():
+            self.vc.stop()
+
     @commands.command(description='skips to the next audio in the queue')
     async def skip(self, ctx) -> None:
-        await self.__play_next(ctx)
+        if self.queue.is_empty:
+            await ctx.send("queue is empty, add a youtube link using /play")
+        else:
+            await self.__play_next(ctx)
+
+    # @commands.command(description='plays the previous audio')
+    # async def back(self, ctx) -> None:
+    #     await self.__play_ruckus_source(ctx, self.queue.previous)
 
     @commands.command(description='removes audio from the queue if present')
     async def remove(self, ctx, url: str) -> None:
@@ -57,17 +69,17 @@ class YoutubeCog(commands.Cog):
 
     @commands.command(description='displays the items in the queue')
     async def showqueue(self, ctx) -> None:
-        if len(self.queue) == 0:
+        if self.queue.is_empty:
             await ctx.send("queue is empty, add a youtube link using /play")
         else:
             await self.__show_queue_msg(ctx)
 
     @commands.command(description='displays the next item in the queue')
     async def whatsnext(self, ctx) -> None:
-        if len(self.queue) == 0:
+        if self.queue.is_empty:
             await ctx.send("queue is empty, add a youtube link using /play")
         else:
-            await ctx.send(f"Playing next: {self.queue.peek_next.title}")
+            await ctx.send(f"Playing next: {self.queue.peek_next().title}")
 
     @commands.command(description='connects to a voice channel')
     async def connect(self, ctx: commands.Context) -> None:
@@ -84,18 +96,23 @@ class YoutubeCog(commands.Cog):
             await ctx.send("already disconnected. connect to a voice channel using /connect")
     
     async def __play_next(self, ctx) -> None:
-        if len(self.queue) == 0:
-            await ctx.send("queue is empty, add a youtube link using /play")
-        else:
-            next_ruckus_source = self.queue.get_next
-            await self.__play_ruckus_source(ctx, next_ruckus_source)
+        next_ruckus_source = self.queue.next
+        await self.__play_ruckus_source(ctx, next_ruckus_source)
 
     async def __play_ruckus_source(self, ctx, ruckus_source: RuckusSource) -> None:
         if self.vc.is_playing():
             self.vc.stop()
 
-        self.vc.play(ruckus_source.source, after = lambda e: asyncio.run_coroutine_threadsafe(self.__play_next(ctx), self.bot.loop))
+        self.vc.play(ruckus_source.source, after = lambda e: asyncio.run_coroutine_threadsafe(self.__after_play(ctx, ruckus_source), self.bot.loop))
         await ctx.send(f"Now playing: {ruckus_source.title}")
+
+    async def __after_play(self, ctx, ruckus_source: RuckusSource):
+        # self.queue.add_to_history(ruckus_source)
+
+        if self.queue.is_empty:
+            await ctx.send("queue is empty, add a youtube link using /play")
+        else:
+            await self.__play_next(ctx)
     
     async def __add_to_queue(self, ctx, url: str) -> None:
         ruckus_source = await self.__get_ruckus_source(url)
@@ -133,18 +150,26 @@ class RuckusQueue:
     def __init__(self) -> None:
         self.queue: Deque[RuckusSource] = deque()
         self.url_map: dict[str, RuckusSource] = {}
+        # self.history: Deque[RuckusSource] = deque()
 
     @property
     def sources(self) -> dict:
         return self.url_map
 
     @property
-    def peek_next(self) -> RuckusSource:
-        return self.queue[0]
+    def next(self) -> RuckusSource:
+        return self.queue.popleft()
+
+    # @property
+    # def previous(self) -> RuckusSource:
+    #     return self.history.popleft()
 
     @property
-    def get_next(self) -> RuckusSource:
-        return self.queue.popleft()
+    def is_empty(self) -> bool:
+        return len(self.queue) == 0
+
+    def peek_next(self) -> RuckusSource:
+        return self.queue[0]
     
     async def append(self, ctx, url: str, item: RuckusSource) -> None:
         self.queue.append(item)
@@ -157,7 +182,10 @@ class RuckusQueue:
         self.url_map.pop(url)
         await ctx.send(f"removed {source.title} from the queue")
 
-    def __len__(self):
+    # def add_to_history(self, item: RuckusSource) -> None:
+    #     self.history.append(item)
+    
+    def __len__(self) -> int:
         return len(self.queue)
     
     def __getitem__(self, index: str) -> RuckusSource:
