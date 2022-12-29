@@ -6,7 +6,7 @@ from discord.ext import commands
 from cogs.youtube_cog import YoutubeCog
 
 intents: discord.Intents = discord.Intents.default()
-intents.messages = True
+intents.message_content = True
 
 bot: commands.Bot = commands.Bot(command_prefix='/', intents=intents)
 
